@@ -1,0 +1,24 @@
+services:
+  console:
+    build: .
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+      - elasticsearch
+    volumes:
+      - ./console.db:/app/console.db
+
+  redis:
+    image: redis:7.2-alpine
+    ports:
+      - "6379:6379"
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    ports:
+      - "9200:9200"
