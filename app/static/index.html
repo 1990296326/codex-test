@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ES/Redis 管理控制台</title>
+  <script src="https://cdn.jsdelivr.net/npm/vue@3.5.13/dist/vue.global.prod.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-100">
+<div id="app" class="max-w-7xl mx-auto p-4 space-y-4">
+  <h1 class="text-2xl font-bold">ES/Redis 管理控制台（可用版）</h1>
+
+  <div class="bg-white p-4 rounded shadow grid grid-cols-1 md:grid-cols-4 gap-3">
+    <input class="border p-2 rounded" v-model="ctx.user" placeholder="用户名">
+    <select class="border p-2 rounded" v-model="ctx.role">
+      <option>viewer</option><option>operator</option><option>admin</option>
+    </select>
+    <button class="bg-blue-600 text-white rounded px-3" @click="loadAll">刷新数据</button>
+    <div class="text-sm text-gray-500">通过请求头模拟鉴权（X-User / X-Role）| 首次建议先新增集群，再连通性检测</div>
+  </div>
+
+  <div class="bg-white p-4 rounded shadow" v-if="ctx.role === 'admin'">
+    <h2 class="font-semibold mb-2">新增集群</h2>
+    <div class="grid grid-cols-2 md:grid-cols-6 gap-2">
+      <input class="border p-2 rounded" placeholder="名称" v-model="newCluster.name">
+      <select class="border p-2 rounded" v-model="newCluster.kind"><option>redis</option><option>es</option></select>
+      <input class="border p-2 rounded" placeholder="host" v-model="newCluster.host">
+      <input class="border p-2 rounded" type="number" placeholder="port" v-model.number="newCluster.port">
+      <input class="border p-2 rounded" placeholder="username" v-model="newCluster.username">
+      <input class="border p-2 rounded" placeholder="password" v-model="newCluster.password">
+    </div>
+    <button class="mt-2 bg-emerald-600 text-white rounded px-3 py-1" @click="createCluster">提交</button>
+  </div>
+
+  <div class="bg-white p-4 rounded shadow">
+    <h2 class="font-semibold mb-2">集群列表 / 资源概览</h2>
+    <table class="w-full text-sm">
+      <thead><tr class="text-left border-b"><th>ID</th><th>名称</th><th>类型</th><th>地址</th><th>健康状态</th></tr></thead>
+      <tbody>
+      <tr v-for="c in clusters" :key="c.id" class="border-b align-top">
+        <td>{{ c.id }}</td><td>{{ c.name }}</td><td>{{ c.kind }}</td><td>{{ c.host }}:{{ c.port }}</td>
+        <td>
+          <button class="text-blue-600" @click="checkHealth(c.id)">健康</button>
+          <button class="text-emerald-700 ml-2" @click="checkConnectivity(c.id)">连通性</button>
+          <pre class="bg-slate-50 p-2 mt-1 rounded whitespace-pre-wrap">{{ health[c.id] || '-' }}</pre>
+        </td>
+      </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="bg-white p-4 rounded shadow" v-if="ctx.role !== 'viewer'">
+    <h2 class="font-semibold mb-2">命令执行</h2>
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-2">
+      <input class="border p-2 rounded" type="number" placeholder="cluster id" v-model.number="execForm.cluster_id">
+      <input class="border p-2 rounded" placeholder="命令" v-model="execForm.command">
+      <input class="border p-2 rounded" type="number" placeholder="ticket id(管理员可空)" v-model.number="execForm.ticket_id">
+      <button class="bg-indigo-600 text-white rounded" @click="executeCmd">执行</button>
+    </div>
+    <pre class="mt-2 bg-slate-50 p-2 rounded whitespace-pre-wrap">{{ execResult }}</pre>
+  </div>
+
+  <div class="bg-white p-4 rounded shadow">
+    <h2 class="font-semibold mb-2">Redis 慢日志</h2>
+    <div class="grid grid-cols-1 md:grid-cols-5 gap-2">
+      <input class="border p-2 rounded" type="number" placeholder="redis cluster id" v-model.number="redisSlowlog.cluster_id">
+      <input class="border p-2 rounded" type="number" placeholder="count" v-model.number="redisSlowlog.count">
+      <button class="bg-cyan-700 text-white rounded px-2" @click="loadRedisSlowlog">查询慢日志</button>
+      <button class="bg-cyan-700 text-white rounded px-2" @click="loadRedisSlowlogConfig">读取配置</button>
+      <button class="bg-cyan-700 text-white rounded px-2" v-if="ctx.role==='admin'" @click="saveRedisSlowlogConfig">保存配置</button>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2" v-if="ctx.role==='admin'">
+      <input class="border p-2 rounded" type="number" placeholder="slowlog-log-slower-than(us)" v-model.number="redisSlowlog.slower_than_us">
+      <input class="border p-2 rounded" type="number" placeholder="slowlog-max-len" v-model.number="redisSlowlog.max_len">
+    </div>
+    <pre class="mt-2 bg-slate-50 p-2 rounded whitespace-pre-wrap max-h-72 overflow-auto">{{ redisSlowlog.result }}</pre>
+  </div>
+
+  <div class="bg-white p-4 rounded shadow">
+    <h2 class="font-semibold mb-2">ES 查询与慢日志设置</h2>
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-2">
+      <input class="border p-2 rounded" type="number" placeholder="es cluster id" v-model.number="esQuery.cluster_id">
+      <input class="border p-2 rounded" placeholder="index (如 logs-*)" v-model="esQuery.index">
+      <input class="border p-2 rounded" type="number" placeholder="size" v-model.number="esQuery.size">
+      <button class="bg-violet-700 text-white rounded px-2" @click="runEsQuery">执行 ES Query</button>
+    </div>
+    <textarea class="border p-2 rounded mt-2 w-full h-28" v-model="esQuery.queryText" placeholder='{"match_all": {}}'></textarea>
+
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-2 mt-3">
+      <input class="border p-2 rounded" placeholder="index_pattern" v-model="esSlowlog.index_pattern">
+      <input class="border p-2 rounded" placeholder="search warn 阈值，如 1s" v-model="esSlowlog.search_warn_threshold">
+      <input class="border p-2 rounded" placeholder="index warn 阈值，如 1s" v-model="esSlowlog.indexing_warn_threshold">
+      <div class="space-x-2">
+        <button class="bg-violet-700 text-white rounded px-2" @click="getEsSlowlogSettings">查看慢日志设置</button>
+        <button class="bg-violet-700 text-white rounded px-2" v-if="ctx.role==='admin'" @click="setEsSlowlogSettings">保存</button>
+      </div>
+    </div>
+
+    <pre class="mt-2 bg-slate-50 p-2 rounded whitespace-pre-wrap max-h-72 overflow-auto">{{ esQuery.result }}</pre>
+  </div>
+
+  <div class="bg-white p-4 rounded shadow" v-if="ctx.role !== 'viewer'">
+    <h2 class="font-semibold mb-2">提交工单</h2>
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-2">
+      <input class="border p-2 rounded" placeholder="标题" v-model="ticketForm.title">
+      <input class="border p-2 rounded" type="number" placeholder="cluster id" v-model.number="ticketForm.cluster_id">
+      <input class="border p-2 rounded" placeholder="命令" v-model="ticketForm.command">
+      <input class="border p-2 rounded" placeholder="描述" v-model="ticketForm.description">
+    </div>
+    <button class="mt-2 bg-orange-600 text-white rounded px-3 py-1" @click="createTicket">提交工单</button>
+  </div>
+
+  <div class="bg-white p-4 rounded shadow">
+    <h2 class="font-semibold mb-2">工单审批</h2>
+    <table class="w-full text-sm">
+      <thead><tr class="text-left border-b"><th>ID</th><th>标题</th><th>状态</th><th>命令</th><th>申请人</th><th>操作</th></tr></thead>
+      <tbody>
+      <tr v-for="t in tickets" :key="t.id" class="border-b align-top">
+        <td>{{ t.id }}</td><td>{{ t.title }}</td><td>{{ t.status }}</td><td><code>{{ t.command }}</code></td><td>{{ t.requester }}</td>
+        <td class="space-x-1">
+          <button v-if="ctx.role==='admin'" class="bg-emerald-600 text-white rounded px-2" @click="reviewTicket(t.id,'approve')">批准</button>
+          <button v-if="ctx.role==='admin'" class="bg-red-600 text-white rounded px-2" @click="reviewTicket(t.id,'reject')">驳回</button>
+        </td>
+      </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="bg-white p-4 rounded shadow">
+    <h2 class="font-semibold mb-2">执行日志查询</h2>
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-2 mb-2">
+      <input class="border p-2 rounded" type="number" placeholder="cluster_id" v-model.number="logFilter.cluster_id">
+      <input class="border p-2 rounded" placeholder="executed_by" v-model="logFilter.executed_by">
+      <input class="border p-2 rounded" placeholder="keyword" v-model="logFilter.keyword">
+      <button class="bg-slate-700 text-white rounded px-2" @click="loadLogs">查询日志</button>
+    </div>
+    <pre class="bg-slate-50 p-2 rounded max-h-64 overflow-auto">{{ JSON.stringify(logs, null, 2) }}</pre>
+  </div>
+</div>
+
+<script>
+const { createApp } = Vue
+createApp({
+  data() {
+    return {
+      ctx: { user: 'demo', role: 'admin' },
+      clusters: [], tickets: [], logs: [], health: {},
+      execForm: { cluster_id: null, command: '', ticket_id: null },
+      ticketForm: { title: '', cluster_id: null, command: '', description: '' },
+      newCluster: { name: '', kind: 'redis', host: 'localhost', port: 6379, username: '', password: '' },
+      logFilter: { cluster_id: null, executed_by: '', keyword: '' },
+      redisSlowlog: { cluster_id: null, count: 20, slower_than_us: 20000, max_len: 256, result: '' },
+      esQuery: { cluster_id: null, index: '*', size: 20, queryText: '{"match_all": {}}', result: '' },
+      esSlowlog: { index_pattern: '*', search_warn_threshold: '1s', indexing_warn_threshold: '1s' },
+      execResult: ''
+    }
+  },
+  methods: {
+    headers() { return { 'X-User': this.ctx.user, 'X-Role': this.ctx.role, 'Content-Type': 'application/json' } },
+    async req(url, opt={}) {
+      const res = await fetch(url, { ...opt, headers: { ...this.headers(), ...(opt.headers||{}) } })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.detail || JSON.stringify(data))
+      return data
+    },
+    async loadAll() {
+      try {
+        this.clusters = await this.req('/api/clusters')
+        this.tickets = await this.req('/api/tickets')
+        await this.loadLogs()
+      } catch (e) { alert(e.message) }
+    },
+    async loadLogs() {
+      const params = new URLSearchParams()
+      if (this.logFilter.cluster_id) params.set('cluster_id', this.logFilter.cluster_id)
+      if (this.logFilter.executed_by) params.set('executed_by', this.logFilter.executed_by)
+      if (this.logFilter.keyword) params.set('keyword', this.logFilter.keyword)
+      this.logs = await this.req(`/api/logs?${params.toString()}`)
+    },
+    async createCluster() {
+      try { await this.req('/api/clusters', { method:'POST', body: JSON.stringify(this.newCluster) }); await this.loadAll() } catch(e){ alert(e.message) }
+    },
+    async checkHealth(id) {
+      try { const d = await this.req(`/api/clusters/${id}/health`); this.health[id] = JSON.stringify(d.summary,null,2)} catch(e){this.health[id]=e.message}
+    },
+    async checkConnectivity(id) {
+      try { const d = await this.req(`/api/clusters/${id}/connectivity`); this.health[id] = JSON.stringify(d.summary,null,2)} catch(e){this.health[id]=e.message}
+    },
+    async createTicket() {
+      try { await this.req('/api/tickets', { method:'POST', body: JSON.stringify(this.ticketForm) }); await this.loadAll() } catch(e){ alert(e.message) }
+    },
+    async reviewTicket(id, action) {
+      try { await this.req(`/api/tickets/${id}/review`, { method:'POST', body: JSON.stringify({action, note:''})}); await this.loadAll() } catch(e){ alert(e.message) }
+    },
+    async executeCmd() {
+      try { const d = await this.req('/api/commands/execute', { method:'POST', body: JSON.stringify(this.execForm)}); this.execResult = d.result; await this.loadAll() } catch(e){ this.execResult=e.message }
+    },
+    async loadRedisSlowlog() {
+      try {
+        const d = await this.req(`/api/clusters/${this.redisSlowlog.cluster_id}/redis/slowlog?count=${this.redisSlowlog.count || 20}`)
+        this.redisSlowlog.result = JSON.stringify(d, null, 2)
+      } catch (e) { this.redisSlowlog.result = e.message }
+    },
+    async loadRedisSlowlogConfig() {
+      try {
+        const d = await this.req(`/api/clusters/${this.redisSlowlog.cluster_id}/redis/slowlog/config`)
+        this.redisSlowlog.result = JSON.stringify(d, null, 2)
+      } catch (e) { this.redisSlowlog.result = e.message }
+    },
+    async saveRedisSlowlogConfig() {
+      try {
+        const d = await this.req(`/api/clusters/${this.redisSlowlog.cluster_id}/redis/slowlog/config`, {
+          method:'PUT', body: JSON.stringify({ slower_than_us: this.redisSlowlog.slower_than_us, max_len: this.redisSlowlog.max_len })
+        })
+        this.redisSlowlog.result = JSON.stringify(d, null, 2)
+      } catch (e) { this.redisSlowlog.result = e.message }
+    },
+    async runEsQuery() {
+      try {
+        const query = JSON.parse(this.esQuery.queryText)
+        const d = await this.req(`/api/clusters/${this.esQuery.cluster_id}/es/query`, {
+          method:'POST', body: JSON.stringify({ index: this.esQuery.index, query, size: this.esQuery.size || 20 })
+        })
+        this.esQuery.result = JSON.stringify(d, null, 2)
+      } catch (e) { this.esQuery.result = e.message }
+    },
+    async getEsSlowlogSettings() {
+      try {
+        const d = await this.req(`/api/clusters/${this.esQuery.cluster_id}/es/slowlog/settings?index_pattern=${encodeURIComponent(this.esSlowlog.index_pattern)}`)
+        this.esQuery.result = JSON.stringify(d, null, 2)
+      } catch (e) { this.esQuery.result = e.message }
+    },
+    async setEsSlowlogSettings() {
+      try {
+        const d = await this.req(`/api/clusters/${this.esQuery.cluster_id}/es/slowlog/settings`, {
+          method:'PUT',
+          body: JSON.stringify(this.esSlowlog)
+        })
+        this.esQuery.result = JSON.stringify(d, null, 2)
+      } catch (e) { this.esQuery.result = e.message }
+    }
+  },
+  mounted(){ this.loadAll() }
+}).mount('#app')
+</script>
+</body>
+</html>
