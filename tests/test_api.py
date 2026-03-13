@@ -60,3 +60,16 @@ def test_redis_slowlog_endpoints(monkeypatch):
     )
     assert p.status_code == 200
     assert p.json()["config"]["slowlog_max_len"] == 256
+
+
+def test_connectivity_and_system_status(monkeypatch):
+    cluster_id = create_cluster(kind="redis", name="redis-connect")
+    monkeypatch.setattr("app.main.cluster_connectivity", lambda cluster: {"type": "redis", "ok": True, "message": "PONG"})
+
+    c = client.get(f"/api/clusters/{cluster_id}/connectivity", headers=headers("viewer", "viewer"))
+    assert c.status_code == 200
+    assert c.json()["summary"]["ok"] is True
+
+    s = client.get("/api/system/status", headers=headers("viewer", "viewer"))
+    assert s.status_code == 200
+    assert s.json()["ok"] is True

@@ -9,6 +9,7 @@
 </head>
 <body class="bg-slate-100">
 <div id="app" class="max-w-7xl mx-auto p-4 space-y-4">
+  <h1 class="text-2xl font-bold">ES/Redis 管理控制台（可用版）</h1>
   <h1 class="text-2xl font-bold">ES/Redis 管理控制台（优化版）</h1>
 
   <div class="bg-white p-4 rounded shadow grid grid-cols-1 md:grid-cols-4 gap-3">
@@ -17,6 +18,7 @@
       <option>viewer</option><option>operator</option><option>admin</option>
     </select>
     <button class="bg-blue-600 text-white rounded px-3" @click="loadAll">刷新数据</button>
+    <div class="text-sm text-gray-500">通过请求头模拟鉴权（X-User / X-Role）| 首次建议先新增集群，再连通性检测</div>
     <div class="text-sm text-gray-500">通过请求头模拟鉴权（X-User / X-Role）</div>
   </div>
 
@@ -41,6 +43,8 @@
       <tr v-for="c in clusters" :key="c.id" class="border-b align-top">
         <td>{{ c.id }}</td><td>{{ c.name }}</td><td>{{ c.kind }}</td><td>{{ c.host }}:{{ c.port }}</td>
         <td>
+          <button class="text-blue-600" @click="checkHealth(c.id)">健康</button>
+          <button class="text-emerald-700 ml-2" @click="checkConnectivity(c.id)">连通性</button>
           <button class="text-blue-600" @click="checkHealth(c.id)">查看</button>
           <pre class="bg-slate-50 p-2 mt-1 rounded whitespace-pre-wrap">{{ health[c.id] || '-' }}</pre>
         </td>
@@ -147,6 +151,7 @@ createApp({
       clusters: [], tickets: [], logs: [], health: {},
       execForm: { cluster_id: null, command: '', ticket_id: null },
       ticketForm: { title: '', cluster_id: null, command: '', description: '' },
+      newCluster: { name: '', kind: 'redis', host: 'localhost', port: 6379, username: '', password: '' },
       newCluster: { name: '', kind: 'redis', host: 'redis', port: 6379, username: '', password: '' },
       logFilter: { cluster_id: null, executed_by: '', keyword: '' },
       redisSlowlog: { cluster_id: null, count: 20, slower_than_us: 20000, max_len: 256, result: '' },
@@ -182,6 +187,9 @@ createApp({
     },
     async checkHealth(id) {
       try { const d = await this.req(`/api/clusters/${id}/health`); this.health[id] = JSON.stringify(d.summary,null,2)} catch(e){this.health[id]=e.message}
+    },
+    async checkConnectivity(id) {
+      try { const d = await this.req(`/api/clusters/${id}/connectivity`); this.health[id] = JSON.stringify(d.summary,null,2)} catch(e){this.health[id]=e.message}
     },
     async createTicket() {
       try { await this.req('/api/tickets', { method:'POST', body: JSON.stringify(this.ticketForm) }); await this.loadAll() } catch(e){ alert(e.message) }

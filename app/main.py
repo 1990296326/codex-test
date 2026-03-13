@@ -21,6 +21,7 @@ from .schemas import (
     UserContext,
 )
 from .services import (
+    cluster_connectivity,
     cluster_health,
     get_es_slowlog_settings,
     get_redis_slowlog,
@@ -102,6 +103,32 @@ def get_cluster_health(
     require_roles(user, {"viewer", "operator", "admin"})
     cluster = must_get_cluster(db, cluster_id)
     return ClusterHealthOut(cluster_id=cluster_id, summary=cluster_health(cluster))
+
+
+@app.get("/api/clusters/{cluster_id}/connectivity")
+def get_cluster_connectivity(
+    cluster_id: int,
+    db: Session = Depends(get_db),
+    user: UserContext = Depends(get_user_context),
+):
+    require_roles(user, {"viewer", "operator", "admin"})
+    cluster = must_get_cluster(db, cluster_id)
+    try:
+        summary = cluster_connectivity(cluster)
+        return {"cluster_id": cluster_id, "summary": summary}
+    except Exception as exc:
+        return {"cluster_id": cluster_id, "summary": {"ok": False, "error": str(exc)}}
+
+
+@app.get("/api/system/status")
+def system_status(db: Session = Depends(get_db), user: UserContext = Depends(get_user_context)):
+    require_roles(user, {"viewer", "operator", "admin"})
+    return {
+        "ok": True,
+        "clusters": db.query(Cluster).count(),
+        "tickets": db.query(Ticket).count(),
+        "logs": db.query(CommandLog).count(),
+    }
 
 
 @app.get("/api/clusters/{cluster_id}/redis/slowlog")

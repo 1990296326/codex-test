@@ -80,6 +80,21 @@ def cluster_health(cluster: Cluster) -> dict:
     }
 
 
+def cluster_connectivity(cluster: Cluster) -> dict[str, Any]:
+    if cluster.kind == "redis":
+        pong = get_redis_client(cluster).ping()
+        return {"type": "redis", "ok": bool(pong), "message": "PONG" if pong else "NO_PONG"}
+
+    info = get_es_client(cluster).info()
+    return {
+        "type": "es",
+        "ok": True,
+        "cluster_name": info.get("cluster_name"),
+        "version": info.get("version", {}).get("number"),
+        "tagline": info.get("tagline"),
+    }
+
+
 def get_redis_slowlog(cluster: Cluster, count: int = 20) -> list[dict[str, Any]]:
     entries = get_redis_client(cluster).slowlog_get(max(count, 1))
     rows: list[dict[str, Any]] = []

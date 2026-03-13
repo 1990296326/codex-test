@@ -41,6 +41,21 @@ docker compose up --build
 - Redis：`localhost:6379`
 - Elasticsearch：`localhost:9200`
 
+> 如果你在 Docker Compose 内部注册集群，请使用 `redis:6379`、`elasticsearch:9200`；如果你在本机部署服务，请使用 `localhost`。
+
+## 最短可用流程（3 分钟）
+
+1. 启动服务（建议 `docker compose up --build`）。
+2. 打开页面后将角色切到 `admin`。
+3. 新增两个集群：
+   - Redis: `redis:6379`（或本地 `localhost:6379`）
+   - ES: `elasticsearch:9200`（或本地 `localhost:9200`）
+4. 在“集群列表”点“连通性”确认可访问。
+5. 开始使用：
+   - Redis 慢日志查询 / 调阈值
+   - ES Query DSL 查询
+   - 工单提审 + 审批 + 执行 + 日志检索
+
 ## 权限模型
 
 通过请求头模拟登录：
@@ -82,6 +97,10 @@ METHOD /path {optional-json-body}
 - `GET /api/clusters/{id}/redis/slowlog?count=20`
 - `GET /api/clusters/{id}/redis/slowlog/config`
 - `PUT /api/clusters/{id}/redis/slowlog/config`
+
+### 集群连通性与系统状态
+- `GET /api/clusters/{id}/connectivity`
+- `GET /api/system/status`
 
 `PUT` 示例：
 
